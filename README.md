@@ -34,13 +34,17 @@ translation: `tool call → HTTP request → backend response → tool result`.
 | Tool | Backend endpoint | Auth required |
 |---|---|---|
 | `get_products` | `GET /api/products/` | None (public endpoint) |
+| `get_product` | `GET /api/products/<id>` | None (public endpoint) |
+| `get_category_tree` | `GET /api/categories/tree` | None (public endpoint) |
+| `get_products_by_category` | `GET /api/categories/<slug>/products` | None (public endpoint) |
 
-Only one tool exists so far, by design — the MCP layer is being proven out
-before the chatbot/agent service is built on top of it.
+Only read-only, no-auth tools exist so far, by design — phase 1 is a fully
+capable product/category chatbot with no auth. The MCP layer is being
+proven out on that before the chatbot/agent service is built on top of it.
 
 ### Known gap: auth passthrough
 
-`get_products` needs no auth. The next tool that acts *on behalf of a
+None of the current tools need auth. The next tool that acts *on behalf of a
 specific customer* (e.g. adding items to their order) will need their
 identity forwarded to the backend's JWT-protected endpoints. That pattern
 (how a tool call carries a user's JWT through to `backend_client`) is not
@@ -106,9 +110,9 @@ starting the backend, rather than editing backend startup logging.
 npx @modelcontextprotocol/inspector python -m src.server
 ```
 
-Opens a browser UI where you can call `get_products` by hand and inspect
-the raw JSON response — no LLM involved. Confirms the MCP layer works in
-isolation before adding agent/LLM complexity on top.
+Opens a browser UI where you can call any of the tools above by hand and
+inspect the raw JSON response — no LLM involved. Confirms the MCP layer
+works in isolation before adding agent/LLM complexity on top.
 
 ### Connecting from Claude Desktop (optional, for interactive use)
 
@@ -132,8 +136,13 @@ Add to Claude Desktop's `claude_desktop_config.json`:
    `call_tool()` smoke test that it reaches the live backend and returns
    real product data. Try it yourself via MCP Inspector too, for the
    interactive feel before an agent is in the loop.
-2. Decide the auth-passthrough pattern for tools that act on a specific user.
-3. Decide the cart/shopping-list model (backend feature vs. agent-side state).
-4. Add the second tool once its backend support actually exists.
-5. Only then start the chatbot/agent service (a separate service that is an
-   MCP *client* to this server, plus the Claude API for the conversation).
+2. ~~Add `get_product`, `get_category_tree`, `get_products_by_category`~~ —
+   done: rounds out the read-only, no-auth product/category surface so a
+   phase-1 chatbot can answer detail and browsing questions, not just search.
+   Verify each via MCP Inspector before moving on.
+3. Only then start the chatbot/agent service (a separate service that is an
+   MCP *client* to this server, plus the Claude API for the conversation) —
+   scoped to product Q&A only, no auth, no cart.
+4. Decide the auth-passthrough pattern for tools that act on a specific user.
+5. Decide the cart/shopping-list model (backend feature vs. agent-side state).
+6. Add auth-protected tools (add-to-order, etc.) once both decisions above are made.

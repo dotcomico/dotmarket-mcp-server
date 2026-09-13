@@ -41,3 +41,48 @@ async def get_products(
         response = await client.get("/api/products/", params=params)
         response.raise_for_status()
         return response.json()
+
+
+async def get_product(product_id: int) -> dict:
+    """Calls GET /api/products/<id> on the backend. Raises
+    httpx.HTTPStatusError (404 if the id doesn't exist) — callers decide how
+    to surface that."""
+    async with httpx.AsyncClient(base_url=BACKEND_API_URL, timeout=10.0) as client:
+        response = await client.get(f"/api/products/{product_id}")
+        response.raise_for_status()
+        return response.json()
+
+
+async def get_category_tree() -> list:
+    """Calls GET /api/categories/tree on the backend. Raises
+    httpx.HTTPStatusError on a non-2xx response — callers decide how to
+    surface that."""
+    async with httpx.AsyncClient(base_url=BACKEND_API_URL, timeout=10.0) as client:
+        response = await client.get("/api/categories/tree")
+        response.raise_for_status()
+        return response.json()
+
+
+async def get_products_by_category(
+    slug: str,
+    page: int = 1,
+    limit: int = 20,
+    min_price: float | None = None,
+    max_price: float | None = None,
+    search: str | None = None,
+) -> dict:
+    """Calls GET /api/categories/<slug>/products on the backend. Raises
+    httpx.HTTPStatusError (404 if the slug doesn't exist) — callers decide
+    how to surface that."""
+    params = {"page": page, "limit": limit}
+    if min_price is not None:
+        params["minPrice"] = min_price
+    if max_price is not None:
+        params["maxPrice"] = max_price
+    if search:
+        params["search"] = search
+
+    async with httpx.AsyncClient(base_url=BACKEND_API_URL, timeout=10.0) as client:
+        response = await client.get(f"/api/categories/{slug}/products", params=params)
+        response.raise_for_status()
+        return response.json()
