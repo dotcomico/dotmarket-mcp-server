@@ -14,7 +14,7 @@ from mcp.server.fastmcp import FastMCP
 
 from src import backend_client
 
-mcp = FastMCP("supermarket")
+mcp = FastMCP("dotmarket")
 
 
 @mcp.tool()
