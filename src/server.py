@@ -84,7 +84,7 @@ async def get_product(product_id: int) -> dict:
 
 
 @mcp.tool()
-async def get_category_tree() -> list | dict:
+async def get_category_tree() -> list[dict] | dict:
     """Look up the full category tree (top-level categories with their
     subcategories nested inside).
 
