@@ -9,7 +9,8 @@ about HTTP, routes, or auth details directly.
 
 ```
 MCP client (agent/chatbot, or MCP Inspector for manual testing)
-        │  MCP protocol (stdio)
+        │  MCP protocol (Streamable HTTP — this service is a standalone
+        │  process reached by URL, not spawned as a child process)
         ▼
   src/server.py        — tool definitions (schemas + docstrings the
                           LLM reads to decide when/how to call a tool)
@@ -74,16 +75,15 @@ and what's still an open choice.
 | **`httpx`** | Calls the Flask backend over HTTP from `backend_client.py`. Chosen because MCP tools are `async def` (so the server isn't blocked waiting on one backend request while another tool call could be handled), and `httpx` is the async-capable equivalent of `requests`. This is about talking to **our own backend** — unrelated to any AI/LLM provider. | `requests` — sync-only, would block the event loop on every backend call inside an async tool. |
 | **`python-dotenv`** | Loads `BACKEND_API_URL` from `.env` so the backend URL is configurable per environment instead of hardcoded. | A full settings library (e.g. `pydantic-settings`) — overkill for one env var today. |
 | **REST calls to the backend, not direct DB access** | The backend already owns validation, stock rules, and auth (`backend/CLAUDE.md`). Reimplementing any of that here would duplicate logic and risk drifting out of sync. | Importing backend models/SQLAlchemy directly — would tie this server to backend internals and duplicate business rules. |
-| **stdio transport (current)** | Matches today's only real client, Claude Desktop, which spawns this server as a local subprocess per session — one user, one process, no need for network-facing auth. | HTTP/SSE transport — not needed until a multi-user consumer (the future agent service) exists. |
+| **Streamable HTTP transport (current)** | `ai-server` is a separate long-running process that connects to this server independently, not one spawned per-session by a single client (as stdio requires) — matches a real network service with potentially multiple/future clients. | stdio — fine for a single subprocess-per-client consumer (e.g. Claude Desktop alone), but doesn't fit a standalone service another process connects to over the network. |
 
 ### Not yet decided (will confront when we get there)
 
 | Decision | The tradeoff | Current lean |
 |---|---|---|
-| **Auth passthrough** — how a customer's JWT reaches a tool that acts on their behalf (e.g. add-to-order) | *stdio + single user* (Claude Desktop): token can be a startup env var, like `BACKEND_API_URL` today. *HTTP transport + multi-user* (agent service): token must arrive **per tool call** as an explicit argument (e.g. `auth_token: str`) — MCP has no Flask-style middleware to intercept it, since stdio has no per-request layer to hook into. MCP *does* define an OAuth-based auth flow for HTTP transport, but that's more machinery than needed until there's a concrete multi-user consumer. | Pass the token as a tool argument when we get there — matches the transport in use and what the existing gap note already implies. |
+| **Auth passthrough** — how a customer's JWT reaches a tool that acts on their behalf (e.g. add-to-order) | With Streamable HTTP + a multi-user agent service, the token must arrive **per tool call** as an explicit argument (e.g. `auth_token: str`) — MCP has no Flask-style middleware to intercept it. MCP *does* define an OAuth-based auth flow for HTTP transport, but that's more machinery than needed until there's a concrete multi-user consumer. | Pass the token as a tool argument when we get there — matches the transport in use and what the existing gap note already implies. |
 | **Cart / shopping-list model** | Backend feature (a real add-to-cart endpoint, new work in `backend/`) vs. agent-side conversation state (no backend change, but state lives only for that chat session). `POST /api/orders/` is one-shot checkout — must not be called per item. | Undecided — needs a decision before the next tool touches orders. |
-| **LLM provider SDK for the future agent service** | Official provider SDK (`anthropic`, `openai`) is scoped to that one provider's API contract (endpoints, auth, request/response shape) — it cannot talk to a different provider, except where that provider deliberately mimics OpenAI's wire format (Ollama, vLLM, etc.). A unification library (e.g. LiteLLM) wraps many providers behind one call signature, at the cost of an extra abstraction layer. | Start with the **`anthropic` SDK** directly — no stated multi-provider requirement yet, and this project is already Claude-oriented. Reach for LiteLLM only if/when multi-provider support becomes a real need — swapping later is a call-site change, not a rewrite. |
-| **Agent service transport to this MCP server** | Once built, the agent service is an MCP *client* to this server. If it needs to serve multiple users, this server's transport question (stdio → HTTP/SSE) and the auth-passthrough question above become the same decision. | Follows directly from the two rows above — decide together, not separately. |
+| **LLM provider SDK for the future agent service** | Official provider SDK (`anthropic`, `openai`) is scoped to that one provider's API contract (endpoints, auth, request/response shape) — it cannot talk to a different provider, except where that provider deliberately mimics OpenAI's wire format (Ollama, vLLM, etc.). A unification library (e.g. LiteLLM) wraps many providers behind one call signature, at the cost of an extra abstraction layer. | Use the **`openai` SDK** directly (`ai-server/requirements.txt` already pins it) — no stated multi-provider requirement yet. Reach for LiteLLM only if/when multi-provider support becomes a real need — swapping later is a call-site change, not a rewrite. |
 
 ## Setup
 
@@ -104,27 +104,35 @@ crash under the default console codepage (`UnicodeEncodeError` from
 server. Work around it for now with `$env:PYTHONIOENCODING="utf-8"` before
 starting the backend, rather than editing backend startup logging.
 
+This service is a standalone Streamable HTTP process — start it with
+`python -m src.server` and leave it running, the same as the Flask
+backend. Clients (`ai-server`, MCP Inspector) connect to it by URL;
+nothing spawns it as a child process.
+
 ### Manual testing with MCP Inspector (do this before wiring up any agent)
 
+With the server already running:
+
 ```bash
-npx @modelcontextprotocol/inspector python -m src.server
+npx @modelcontextprotocol/inspector
 ```
 
-Opens a browser UI where you can call any of the tools above by hand and
-inspect the raw JSON response — no LLM involved. Confirms the MCP layer
-works in isolation before adding agent/LLM complexity on top.
+Opens a browser UI — point it at `http://<MCP_HOST>:<MCP_PORT>/mcp`
+(default `http://127.0.0.1:8000/mcp`) with transport "Streamable HTTP" to
+call any of the tools above by hand and inspect the raw JSON response — no
+LLM involved. Confirms the MCP layer works in isolation before adding
+agent/LLM complexity on top.
 
 ### Connecting from Claude Desktop (optional, for interactive use)
 
-Add to Claude Desktop's `claude_desktop_config.json`:
+Server must already be running. Add to Claude Desktop's
+`claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "supermarket": {
-      "command": "python",
-      "args": ["-m", "src.server"],
-      "cwd": "C:/Users/dotan/Docs/Vs Projects/Projects/Supermarket/mcp-server"
+      "url": "http://127.0.0.1:8000/mcp"
     }
   }
 }

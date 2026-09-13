@@ -1,20 +1,35 @@
 """
 MCP server exposing the Supermarket backend as MCP tools, for Claude
-Desktop, MCP Inspector, and future chatbot agents.
+Desktop, MCP Inspector, and the ai-server chatbot/agent service.
 
 Holds no business logic or DB access — every tool is a thin translation
 to a Flask backend REST endpoint (see backend_client.py), keeping
 validation, stock rules, and auth in one place per backend/CLAUDE.md.
 
-Run standalone: npx @modelcontextprotocol/inspector python -m src.server
-(from mcp-server/, with the backend already running)
+Runs as a standalone Streamable HTTP service (own process, own port) so
+any MCP client reaches it by URL — the same way this service itself
+reaches the Flask backend — rather than being spawned as a child process.
+
+Run standalone: python -m src.server
+Inspect manually: npx @modelcontextprotocol/inspector
+  (with the backend already running; point the inspector at
+  http://<MCP_HOST>:<MCP_PORT>/mcp, transport "Streamable HTTP")
 """
+import os
+
 import httpx
+from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 
 from src import backend_client
 
-mcp = FastMCP("dotmarket")
+load_dotenv()
+
+mcp = FastMCP(
+    "dotmarket",
+    host=os.environ.get("MCP_HOST", "127.0.0.1"),
+    port=int(os.environ.get("MCP_PORT", "8000")),
+)
 
 
 @mcp.tool()
@@ -149,4 +164,4 @@ async def get_products_by_category(
 
 
 if __name__ == "__main__":
-    mcp.run()
+    mcp.run(transport="streamable-http")
