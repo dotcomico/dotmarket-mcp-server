@@ -108,6 +108,10 @@ async def get_category_tree() -> list[dict] | dict:
     get_products_by_category — categories are only two levels deep
     (top-level + subcategories), matching how the storefront browses them.
 
+    Do NOT use this for price, stock, or "cheapest" questions — those
+    have nothing to do with the category tree's shape. Use get_products
+    or get_products_by_category for those instead.
+
     Returns:
         [{id, name, slug, children: [...]}, ...] — a list of top-level
         categories, each with its subcategories nested in "children".
@@ -132,8 +136,11 @@ async def get_products_by_category(
     """Look up the products in a category (and its subcategories), by slug.
 
     Use this for browsing questions like "what's in your bakery category" or
-    "show me dairy under $5" — get the slug from get_category_tree first.
-    Includes products in every subcategory under the given one.
+    "show me dairy under $5", and for price/stock/"cheapest" questions scoped
+    to a category — get the slug from get_category_tree first. Includes
+    products in every subcategory under the given one. The results aren't
+    pre-sorted by price — compare them yourself to answer "cheapest"/"most
+    expensive" questions.
 
     Args:
         slug: The category's slug (from get_category_tree).
