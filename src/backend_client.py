@@ -53,6 +53,19 @@ async def get_product(product_id: int) -> dict:
         return response.json()
 
 
+def _slim_category(node: dict) -> dict:
+    """Strips a backend category node down to what the LLM tool actually
+    uses (id, name, slug, children) — the raw node also carries parentId,
+    icon, image, and timestamps meant for the storefront/admin UI, not a
+    chat tool result."""
+    return {
+        "id": node["id"],
+        "name": node["name"],
+        "slug": node["slug"],
+        "children": [_slim_category(child) for child in node.get("children", [])],
+    }
+
+
 async def get_category_tree() -> list:
     """Calls GET /api/categories/tree on the backend. Raises
     httpx.HTTPStatusError on a non-2xx response — callers decide how to
@@ -60,7 +73,7 @@ async def get_category_tree() -> list:
     async with httpx.AsyncClient(base_url=BACKEND_API_URL, timeout=10.0) as client:
         response = await client.get("/api/categories/tree")
         response.raise_for_status()
-        return response.json()
+        return [_slim_category(node) for node in response.json()]
 
 
 async def get_products_by_category(
